@@ -1,12 +1,15 @@
 // ==UserScript==
 // @name         元宝Chat Export Toolkit
 // @namespace    https://github.com/gandli/chat-export-toolkit
-// @version      0.6.0
+// @version      0.7.0
 // @author       gandli
-// @description  Export current Yuanbao conversations or stream full history to local JSON/Markdown folders
+// @description  Export Yuanbao and Qianwen conversations to local JSON/Markdown folders
 // @license      MIT
 // @match        *://yuanbao.tencent.com/*
 // @match        *://*.yuanbao.tencent.com/*
+// @match        *://qianwen.com/*
+// @match        *://*.qianwen.com/*
+// @match        *://tongyi.aliyun.com/*
 // @require      https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js
 // @grant        none
 // @run-at       document-start
@@ -283,7 +286,7 @@
   function createStore() {
     return typeof localStorage !== "undefined" ? new BrowserStore() : new MemoryStore();
   }
-  const asRecord$1 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  const asRecord$2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
   function firstIdentifier(record) {
     for (const key of ["conversationId", "conversation_id", "convId", "conversationUuid", "sessionId", "chatId", "id"]) {
       const value = record[key];
@@ -306,7 +309,7 @@
     return `cache:yuanbao-meta:${encodeURIComponent(agentId || "default")}:${encodeURIComponent(conversationId)}`;
   }
   function withListMetadata(rawConversation, listRecord) {
-    const detail = asRecord$1(rawConversation.data);
+    const detail = asRecord$2(rawConversation.data);
     if (!detail) return rawConversation;
     return {
       ...rawConversation,
@@ -326,7 +329,7 @@
     const listed = await adapter.listConversations();
     const unique = /* @__PURE__ */ new Map();
     for (const raw of listed) {
-      const record = asRecord$1(raw.data);
+      const record = asRecord$2(raw.data);
       if (!record) continue;
       const id = firstIdentifier(record);
       if (id) unique.set(id, { raw, record });
@@ -342,7 +345,7 @@
     const retainRawConversations = options.retainRawConversations !== false;
     const legacyCache = /* @__PURE__ */ new Map();
     for (const candidate of await store.query("cache:conversation:*")) {
-      const candidateRecord = asRecord$1(candidate == null ? void 0 : candidate.data);
+      const candidateRecord = asRecord$2(candidate == null ? void 0 : candidate.data);
       if (!candidateRecord) continue;
       const candidateId = firstIdentifier(candidateRecord);
       if (candidateId) legacyCache.set(candidateId, candidate);
@@ -690,8 +693,8 @@
       });
     }
   }
-  const DETAIL_ENDPOINT = "/api/user/agent/conversation/v1/detail";
-  const LIST_ENDPOINT = "/api/user/agent/conversation/list";
+  const DETAIL_ENDPOINT$1 = "/api/user/agent/conversation/v1/detail";
+  const LIST_ENDPOINT$1 = "/api/user/agent/conversation/list";
   const PROJECTS_ENDPOINT = "/api/v5/projectLogic/project/get-user-projects-with-convs";
   const PROJECT_CONVERSATIONS_ENDPOINT = "/api/user/agent/conversation/v3/list";
   function parseYuanbaoChatUrl(input) {
@@ -707,9 +710,9 @@
       return null;
     }
   }
-  const asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  const asRecord$1 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
   function nestedRecords(root) {
-    const first = asRecord(root);
+    const first = asRecord$1(root);
     if (!first) return [];
     const result = [];
     const queue = [first];
@@ -720,7 +723,7 @@
       seen.add(current);
       result.push(current);
       for (const value of Object.values(current)) {
-        const nested = asRecord(value);
+        const nested = asRecord$1(value);
         if (nested) queue.push(nested);
       }
     }
@@ -734,7 +737,7 @@
     if (Array.isArray(response)) return { items: response };
     const records = nestedRecords(response);
     const container = records.find((record) => Array.isArray(record.conversations));
-    const pagination = records.map((record) => asRecord(record.pagination)).find((value) => value !== null);
+    const pagination = records.map((record) => asRecord$1(record.pagination)).find((value) => value !== null);
     return {
       items: (container == null ? void 0 : container.conversations) || [],
       totalResults: toFiniteNumber(pagination == null ? void 0 : pagination.totalResults)
@@ -775,8 +778,8 @@
       __publicField(this, "projectDiagnostics", []);
       __publicField(this, "lastRequestError");
       __publicField(this, "apiEndpoints", {
-        detail: DETAIL_ENDPOINT,
-        list: LIST_ENDPOINT,
+        detail: DETAIL_ENDPOINT$1,
+        list: LIST_ENDPOINT$1,
         discovered: true
       });
       const fetchOwner = typeof window !== "undefined" ? window : globalThis;
@@ -899,7 +902,7 @@
           while (pagesFetched < this.maxPages) {
             const body = { agentId, offset, limit: this.listPageSize };
             if (mode !== "omit") body.filterGoodQuestion = mode;
-            const page = extractListPage(await this.postJson(LIST_ENDPOINT, body));
+            const page = extractListPage(await this.postJson(LIST_ENDPOINT$1, body));
             pagesFetched++;
             totalResults = page.totalResults ?? totalResults;
             const pageIds = page.items.map((item) => this.extractConversationId(item)).filter(Boolean);
@@ -1009,13 +1012,13 @@
     extractProjects(response) {
       for (const record of nestedRecords(response)) {
         if (!Array.isArray(record.items)) continue;
-        const items = record.items.map(asRecord).filter((item) => item !== null);
+        const items = record.items.map(asRecord$1).filter((item) => item !== null);
         if (items.some((item) => this.stringField(item, ["project_id", "projectId"]))) return items;
       }
       return [];
     }
     extractProjectConversationItems(project) {
-      const conversationList = asRecord(project.conversation_list) || asRecord(project.conversationList);
+      const conversationList = asRecord$1(project.conversation_list) || asRecord$1(project.conversationList);
       if (!conversationList) return [];
       for (const key of ["list", "conversations", "items"]) {
         if (Array.isArray(conversationList[key])) return conversationList[key];
@@ -1092,7 +1095,7 @@
       const seenPageSignatures = /* @__PURE__ */ new Set();
       let paginationComplete = false;
       for (let pageNumber = 0; pageNumber < this.maxPages; pageNumber++) {
-        const response = await this.postJson(DETAIL_ENDPOINT, {
+        const response = await this.postJson(DETAIL_ENDPOINT$1, {
           conversationId,
           offset,
           limit: this.detailPageSize,
@@ -1193,7 +1196,7 @@
           }
         } catch (error) {
           lastError = error;
-          const retryable = (_a = asRecord(error)) == null ? void 0 : _a.retryable;
+          const retryable = (_a = asRecord$1(error)) == null ? void 0 : _a.retryable;
           if (retryable === false || attempt === this.maxRetries) break;
         }
         const delay = this.retryBaseDelayMs * 2 ** attempt;
@@ -3781,516 +3784,328 @@
       }
     }
   }
-  const QWEN_DOMAINS = [
-    "tongyi.aliyun.com",
-    "tongyi.aliyun.com"
-  ];
-  const QWEN_DETAIL_ENDPOINT_CANDIDATES = [
-    "/api/chat/detail",
-    "/api/conversation/detail",
-    "/api/session/detail",
-    "/api/v1/chat/detail",
-    "/api/v1/conversation/detail",
-    "/chat/detail",
-    "/conversation/detail",
-    "/qwen/api/chat/detail",
-    "/tongyi/api/chat/detail",
-    "/graphql"
-    // 通义千问可能使用 GraphQL
-  ];
-  const QWEN_LIST_ENDPOINT_CANDIDATES = [
-    "/api/chat/list",
-    "/api/conversation/list",
-    "/api/session/list",
-    "/api/v1/chat/list",
-    "/api/v1/conversation/list",
-    "/chat/list",
-    "/conversation/list",
-    "/qwen/api/chat/list",
-    "/tongyi/api/chat/list",
-    "/graphql"
-    // 通义千问可能使用 GraphQL
-  ];
-  const QWEN_URL_PATTERNS = [
-    /^\/qianwen\/chat\/([a-zA-Z0-9-]+)$/i,
-    // /qianwen/chat/{id}
-    /^\/chat\/([a-zA-Z0-9-]+)$/i,
-    // /chat/{id}
-    /^\/conversation\/([a-zA-Z0-9-]+)$/i,
-    // /conversation/{id}
-    /^\/session\/([a-zA-Z0-9-]+)$/i,
-    // /session/{id}
-    /^\/c\/([a-zA-Z0-9-]+)$/i
-    // /c/{id}
-  ];
-  const QWEN_CAPABILITY_LEVELS = {
-    L1: "从当前页面 DOM 提取可见消息（基础）"
+  const API_ORIGIN = "https://chat2-api.qianwen.com";
+  const LIST_ENDPOINT = "/api/v2/session/page/list";
+  const DETAIL_ENDPOINT = "/api/v1/session/msg/list";
+  function parseQwenChatUrl(input) {
+    try {
+      const url = input instanceof URL ? input : new URL(input, "https://www.qianwen.com");
+      const match = url.pathname.match(/^\/chat\/([^/?#]+)\/?$/i);
+      return (match == null ? void 0 : match[1]) ? decodeURIComponent(match[1]) : void 0;
+    } catch {
+      return void 0;
+    }
+  }
+  const asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  const finiteNumber = (value) => {
+    const number = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(number) ? number : void 0;
   };
-  class QwenAdapter extends BasePlatformAdapter {
-    constructor() {
-      super(...arguments);
-      __publicField(this, "platform", "qwen");
-      __publicField(this, "apiEndpoints", {
-        detail: null,
-        list: null,
-        discovered: false
-      });
-      __publicField(this, "capturedConversations", /* @__PURE__ */ new Map());
-      __publicField(this, "conversationMetas", /* @__PURE__ */ new Map());
+  const isTrue = (value) => value === true || value === 1 || value === "1";
+  const responseData = (response) => {
+    const root = asRecord(response);
+    return asRecord(root == null ? void 0 : root.data) || root || {};
+  };
+  function sanitizeRaw(value, key = "", seen = /* @__PURE__ */ new WeakSet()) {
+    if (/^(header|headers|cookie|authorization|access_token|refresh_token|client_ip|user_ip|ip|device_id|signature|sign)$/i.test(key)) {
+      return "[redacted by chat-export-toolkit]";
     }
-    /**
-     * 检测当前页面是否属于通义千问平台
-     * 
-     * 检测逻辑：
-     * 1. 检查域名是否为 tongyi.aliyun.com
-     * 2. 检查页面特征（可选，待实现）
-     * 
-     * @returns 是否为通义千问平台
-     */
-    detect() {
-      if (typeof window === "undefined") {
-        return false;
-      }
-      const hostname = window.location.hostname;
-      if (QWEN_DOMAINS.includes(hostname)) {
-        return true;
-      }
-      if (hostname.endsWith(".aliyun.com") && hostname.includes("tongyi")) {
-        return true;
-      }
-      return false;
+    if (Array.isArray(value)) return value.map((item) => sanitizeRaw(item, "", seen));
+    if (value === null || typeof value !== "object") return value;
+    if (seen.has(value)) return "[circular]";
+    seen.add(value);
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, sanitizeRaw(childValue, childKey, seen)]));
+  }
+  function messageText(message) {
+    if (typeof message.content === "string") return message.content;
+    const meta = asRecord(message.meta_data) || asRecord(message.metadata);
+    for (const key of ["content", "text", "answer", "result", "ori_query", "intent_content"]) {
+      if (typeof (meta == null ? void 0 : meta[key]) === "string" && meta[key]) return meta[key];
     }
-    /**
-     * 获取单个对话的原始数据
-     * 
-     * 策略：
-     * 1. 优先从已捕获的缓存中获取
-     * 2. 如果未缓存，尝试通过 API 端点主动获取
-     * 3. 支持从 URL 中提取 conversationId
-     * 
-     * @param conversationId 对话 ID（可选）
-     * @returns 原始对话数据，失败时返回 null
-     */
-    async getConversation(conversationId) {
-      console.log("[QwenAdapter] getConversation called", { conversationId });
-      if (conversationId && this.capturedConversations.has(conversationId)) {
-        const data = this.capturedConversations.get(conversationId);
-        return {
-          platform: this.platform,
-          data
-        };
-      }
-      const idFromUrl = this.extractConversationIdFromUrl();
-      const targetId = conversationId || idFromUrl;
-      if (!targetId) {
-        console.warn("[QwenAdapter] No conversation ID available");
-        return null;
-      }
-      try {
-        const detail = await this.fetchConversationDetail(targetId);
-        if (detail) {
-          this.capturedConversations.set(targetId, detail);
-          return {
-            platform: this.platform,
-            data: detail
-          };
-        }
-      } catch (error) {
-        console.error("[QwenAdapter] Failed to fetch conversation:", error);
-      }
-      console.warn("[QwenAdapter] Falling back to DOM extraction (not implemented)");
-      return null;
-    }
-    /**
-     * 获取对话列表的原始数据
-     * 
-     * 策略：
-     * 1. 优先从已拦截的 API 响应中获取
-     * 2. 尝试通过 API 端点主动获取
-     * 3. 回退到从 DOM 中提取对话元数据
-     * 
-     * @returns 原始对话列表
-     */
-    async listConversations() {
-      var _a, _b, _c;
-      console.log("[QwenAdapter] listConversations called");
-      const metas = [];
-      for (const [id, detail] of this.capturedConversations.entries()) {
-        const title = detail.title || ((_a = detail.metadata) == null ? void 0 : _a.title) || "通义千问对话";
-        metas.push({
-          id,
-          title,
-          createTime: detail.create_time,
-          updateTime: detail.update_time,
-          model: (_b = detail.metadata) == null ? void 0 : _b.model,
-          messageCount: (_c = detail.messages) == null ? void 0 : _c.length
+    const append = asRecord(meta == null ? void 0 : meta.append_msg);
+    return typeof (append == null ? void 0 : append.content) === "string" ? append.content : "";
+  }
+  function flattenTurns(turns) {
+    const messages = [];
+    for (const turn of turns) {
+      const requestTime = turn.request_timestamp ?? turn.created_at ?? turn.create_time;
+      for (const [index, original] of (turn.request_messages || []).entries()) {
+        const raw = original;
+        messages.push({
+          ...raw,
+          id: `${turn.req_id || turn.pos || "turn"}:request:${index}`,
+          role: "user",
+          content: messageText(raw),
+          timestamp: requestTime,
+          metadata: { rawMessage: raw, reqId: turn.req_id, pos: turn.pos }
         });
       }
-      try {
-        const listData = await this.fetchConversationList();
-        if (listData && Array.isArray(listData)) {
-          for (const item of listData) {
-            const id = this.extractConversationId(item);
-            const title = this.extractConversationTitle(item);
-            if (id && !metas.some((m) => m.id === id)) {
-              metas.push({
-                id,
-                title,
-                createTime: item.create_time,
-                updateTime: item.update_time,
-                model: item.model,
-                messageCount: item.message_count
-              });
-            }
-          }
-        }
-      } catch (error) {
-        console.warn("[QwenAdapter] Failed to fetch conversation list:", error);
+      const responses = turn.response_messages || turn.qwen_response_messages || [];
+      for (const [index, original] of responses.entries()) {
+        const raw = original;
+        const text = messageText(raw);
+        if (!text.trim()) continue;
+        messages.push({
+          ...raw,
+          id: String(raw.id || `${turn.req_id || turn.pos || "turn"}:response:${index}`),
+          role: String(raw.role || "assistant"),
+          content: text,
+          timestamp: turn.response_timestamp ?? turn.updated_at ?? turn.update_time ?? requestTime,
+          metadata: { rawMessage: raw, reqId: turn.req_id, pos: turn.pos, modelName: turn.model_name }
+        });
       }
-      if (metas.length === 0) {
-        const domMetas = this.extractConversationMetasFromDom();
-        for (const meta of domMetas) {
-          if (!metas.some((m) => m.id === meta.id)) {
-            metas.push(meta);
-          }
-        }
-      }
-      return metas.map((meta) => ({
-        platform: this.platform,
-        data: {
-          conversationId: meta.id,
-          title: meta.title,
-          create_time: meta.createTime,
-          update_time: meta.updateTime,
-          model: meta.model,
-          message_count: meta.messageCount
-        }
-      }));
     }
-    /**
-     * 提取消息列表
-     * 
-     * 将通义千问的 messages/chats/turns/history 数组转换为 RawMessage 数组
-     * 
-     * @param rawConversation 原始对话数据
-     * @returns 原始消息列表
-     */
-    extractMessages(rawConversation) {
-      console.log("[QwenAdapter] extractMessages called");
-      if (!rawConversation || !rawConversation.data) {
-        console.warn("[QwenAdapter] Invalid input to extractMessages");
+    return messages;
+  }
+  class QwenAdapter extends BasePlatformAdapter {
+    constructor(options = {}) {
+      super();
+      __publicField(this, "platform", "qwen");
+      __publicField(this, "fetchFn");
+      __publicField(this, "sleep");
+      __publicField(this, "listPageSize");
+      __publicField(this, "detailPageSize");
+      __publicField(this, "requestDelayMs");
+      __publicField(this, "retryBaseDelayMs");
+      __publicField(this, "maxRetries");
+      __publicField(this, "maxPages");
+      __publicField(this, "configuredCommonQuery");
+      __publicField(this, "captured", /* @__PURE__ */ new Map());
+      __publicField(this, "metas", /* @__PURE__ */ new Map());
+      __publicField(this, "lastRequestError");
+      __publicField(this, "listPagesFetched", 0);
+      const owner = typeof window !== "undefined" ? window : globalThis;
+      this.fetchFn = options.fetchFn || ((input, init) => owner.fetch.call(owner, input, init));
+      this.sleep = options.sleep || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+      this.listPageSize = Math.max(1, options.listPageSize ?? 50);
+      this.detailPageSize = Math.max(1, options.detailPageSize ?? 10);
+      this.requestDelayMs = Math.max(0, options.requestDelayMs ?? 150);
+      this.retryBaseDelayMs = Math.max(0, options.retryBaseDelayMs ?? 500);
+      this.maxRetries = Math.max(0, options.maxRetries ?? 3);
+      this.maxPages = Math.max(1, options.maxPages ?? 1e4);
+      this.configuredCommonQuery = options.commonQuery;
+    }
+    detect() {
+      if (typeof window === "undefined") return false;
+      const hostname = window.location.hostname;
+      return hostname === "qianwen.com" || hostname.endsWith(".qianwen.com") || hostname === "tongyi.aliyun.com";
+    }
+    async getConversation(conversationId, options = {}) {
+      const targetId = conversationId || (typeof window === "undefined" ? void 0 : parseQwenChatUrl(window.location.href));
+      if (!targetId) return null;
+      if (!options.forceRefresh && this.captured.has(targetId)) return { platform: this.platform, data: this.captured.get(targetId) };
+      try {
+        const detail = await this.fetchConversationDetail(targetId);
+        this.captured.set(targetId, detail);
+        this.lastRequestError = void 0;
+        return { platform: this.platform, data: detail };
+      } catch (error) {
+        this.lastRequestError = error instanceof Error ? error.message : String(error);
+        console.error(`[QwenAdapter] Failed to fetch session ${targetId}:`, error);
+        return null;
+      }
+    }
+    async listConversations() {
+      try {
+        return (await this.fetchConversationList()).map((item) => ({ platform: this.platform, data: {
+          ...item,
+          conversationId: item.session_id,
+          updateTime: item.updated_at ?? item.last_req_timestamp,
+          projectName: item.group_name || "其他"
+        } }));
+      } catch (error) {
+        this.lastRequestError = error instanceof Error ? error.message : String(error);
+        console.error("[QwenAdapter] Failed to fetch the session list:", error);
         return [];
       }
-      const data = rawConversation.data;
-      let messages = [];
-      if (Array.isArray(data.messages)) {
-        messages = data.messages;
-      } else if (Array.isArray(data.chats)) {
-        messages = data.chats;
-      } else if (Array.isArray(data.turns)) {
-        messages = data.turns;
-      } else if (Array.isArray(data.history)) {
-        messages = data.history;
-      } else if (data.mapping) {
-        messages = this.extractMessagesFromMapping(data.mapping);
-      }
-      return messages.map((msg) => ({
-        platform: this.platform,
-        data: msg
-      }));
     }
-    /**
-     * 获取平台元数据
-     * 
-     * @returns 平台元数据
-     */
+    extractMessages(rawConversation) {
+      if (!rawConversation || !rawConversation.data) return [];
+      const detail = asRecord(rawConversation.data);
+      return (Array.isArray(detail == null ? void 0 : detail.messages) ? detail.messages : []).map((data) => ({ platform: this.platform, data }));
+    }
     async getMetadata() {
       return {
         platform: this.platform,
-        detected: this.detect(),
-        endpointsDiscovered: this.apiEndpoints.discovered,
-        capturedCount: this.capturedConversations.size,
-        metaCount: this.conversationMetas.size,
-        capabilityLevel: "L1",
-        // 当前实现级别
-        capabilityDescription: QWEN_CAPABILITY_LEVELS.L1
+        capabilityLevel: "L3",
+        listEndpoint: LIST_ENDPOINT,
+        detailEndpoint: DETAIL_ENDPOINT,
+        listPagesFetched: this.listPagesFetched,
+        capturedCount: this.captured.size,
+        metaCount: this.metas.size,
+        lastRequestError: this.lastRequestError,
+        credentialFieldsRedacted: true
       };
     }
-    // ============================================================================
-    // 内部方法：API 端点探测
-    // ============================================================================
-    /**
-     * 动态发现 API 端点
-     * 
-     * 策略：
-     * 1. 从已拦截的请求中选择
-     * 2. 从页面 JS 资源中提取
-     * 3. 回退到常见端点探测
-     * 
-     * @returns 发现的 API 端点
-     */
-    async discoverApiEndpoints() {
-      if (this.apiEndpoints.discovered) {
-        return this.apiEndpoints;
+    /** Reuse the dynamic query values already used by the logged-in web app. */
+    commonQuery() {
+      const params = new URLSearchParams({ biz_id: "ai_qwen", chat_client: "h5", device: "pc", fr: "pc", pr: "qwen", la: "zh-CN", tz: "Asia/Shanghai" });
+      const allowed = /* @__PURE__ */ new Set(["biz_id", "chat_client", "device", "fr", "pr", "ut", "la", "tz", "wv", "ve"]);
+      if (this.configuredCommonQuery) {
+        for (const [key, value] of Object.entries(this.configuredCommonQuery)) params.set(key, value);
+        return params;
       }
-      const endpoints = {
-        detail: null,
-        list: null,
-        discovered: false
-      };
-      if (!endpoints.detail) {
-        console.log("[QwenAdapter] Using fallback probe for detail API");
-        endpoints.detail = await this.probeDetailApi();
-      }
-      if (!endpoints.list) {
-        console.log("[QwenAdapter] Using fallback probe for list API");
-        endpoints.list = await this.probeListApi();
-      }
-      console.log("[QwenAdapter] Discovered API endpoints:", endpoints);
-      this.apiEndpoints = { ...endpoints, discovered: true };
-      return this.apiEndpoints;
-    }
-    /**
-     * 探测 detail API 端点
-     * 
-     * TODO: 需要实现实际的探测逻辑
-     * 可能的策略：
-     * 1. 发送 OPTIONS 请求探测端点
-     * 2. 从页面 JS 文件中提取 API 路径
-     * 3. 监听网络请求并识别模式
-     */
-    async probeDetailApi() {
-      console.warn("[QwenAdapter] probeDetailApi not fully implemented");
-      return QWEN_DETAIL_ENDPOINT_CANDIDATES[0];
-    }
-    /**
-     * 探测 list API 端点
-     * 
-     * TODO: 需要实现实际的探测逻辑
-     */
-    async probeListApi() {
-      console.warn("[QwenAdapter] probeListApi not fully implemented");
-      return QWEN_LIST_ENDPOINT_CANDIDATES[0];
-    }
-    // ============================================================================
-    // 内部方法：数据获取
-    // ============================================================================
-    /**
-     * 获取对话详情
-     * 
-     * TODO: 需要实现实际的 fetch 逻辑
-     * 需要：
-     * 1. 确定正确的 API 端点
-     * 2. 确定认证方式（Cookie / Token）
-     * 3. 确定请求参数格式
-     */
-    async fetchConversationDetail(_conversationId) {
-      const endpoints = await this.discoverApiEndpoints();
-      if (!endpoints.detail) {
-        throw new Error("Detail API endpoint not available");
-      }
-      console.warn("[QwenAdapter] fetchConversationDetail not fully implemented");
-      return null;
-    }
-    /**
-     * 获取对话列表
-     * 
-     * TODO: 需要实现实际的 fetch 逻辑
-     */
-    async fetchConversationList() {
-      const endpoints = await this.discoverApiEndpoints();
-      if (!endpoints.list) {
-        throw new Error("List API endpoint not available");
-      }
-      console.warn("[QwenAdapter] fetchConversationList not fully implemented");
-      return null;
-    }
-    // ============================================================================
-    // 内部方法：数据提取辅助
-    // ============================================================================
-    /**
-     * 从 URL 中提取 conversationId
-     * 
-     * 通义千问的 URL 模式可能是：
-     * - https://tongyi.aliyun.com/qianwen/chat/{conversation-id}
-     * - https://tongyi.aliyun.com/chat/{conversation-id}
-     * 
-     * TODO: 需要实际访问通义千问网页版验证 URL 结构
-     */
-    extractConversationIdFromUrl() {
-      if (typeof window === "undefined") {
-        return "";
-      }
-      try {
-        const url = new URL(window.location.href);
-        const pathname = url.pathname;
-        for (const pattern of QWEN_URL_PATTERNS) {
-          const match = pathname.match(pattern);
-          if (match && match[1]) {
-            return match[1];
+      if (typeof performance !== "undefined") {
+        const resources = performance.getEntriesByType("resource");
+        for (let index = resources.length - 1; index >= 0; index--) {
+          try {
+            const url = new URL(resources[index].name);
+            if (url.hostname !== "chat2-api.qianwen.com") continue;
+            for (const [key, value] of url.searchParams) if (allowed.has(key) && value) params.set(key, value);
+            if (params.has("ut")) break;
+          } catch {
           }
         }
-        return url.searchParams.get("conversationId") || url.searchParams.get("conversation_id") || url.searchParams.get("chatId") || url.searchParams.get("chat_id") || url.searchParams.get("sessionId") || url.searchParams.get("session_id") || url.searchParams.get("id") || "";
-      } catch {
-        return "";
       }
+      return params;
     }
-    /**
-     * 从对话项中提取 ID
-     * 
-     * 支持多种可能的字段名
-     */
-    extractConversationId(item) {
-      return item.conversation_id || item.conversationId || item.chat_id || item.chatId || item.session_id || item.sessionId || item.id || "";
+    apiUrl(endpoint, extra = {}) {
+      const url = new URL(endpoint, API_ORIGIN);
+      const params = this.commonQuery();
+      for (const [key, value] of Object.entries(extra)) if (value !== void 0) params.set(key, String(value));
+      params.set("timestamp", String(Date.now()));
+      params.set("nonce", Math.random().toString(36).slice(2, 13));
+      url.search = params.toString();
+      return url.toString();
     }
-    /**
-     * 从对话项中提取标题
-     * 
-     * 支持多种可能的字段名
-     */
-    extractConversationTitle(item) {
-      return item.title || item.conversationTitle || item.chatTitle || item.name || item.summary || item.topic || "通义千问对话";
-    }
-    /**
-     * 从 DOM 中提取对话元数据
-     * 
-     * TODO: 需要根据通义千问的实际 DOM 结构实现
-     * 需要：
-     * 1. 访问通义千问网页版
-     * 2. 检查对话列表的 HTML 结构
-     * 3. 确定正确的选择器
-     */
-    extractConversationMetasFromDom() {
-      if (typeof document === "undefined") {
-        return [];
+    async fetchConversationList() {
+      const merged = /* @__PURE__ */ new Map();
+      const seenTokens = /* @__PURE__ */ new Set();
+      let nextToken = "";
+      this.listPagesFetched = 0;
+      for (let page = 0; page < this.maxPages; page++) {
+        const body = { limit: this.listPageSize, sort_field: "modifiedTime", need_filter_tag: true };
+        if (nextToken) body.next_token = nextToken;
+        const data = responseData(await this.requestJson(this.apiUrl(LIST_ENDPOINT), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        }));
+        this.listPagesFetched++;
+        const items = Array.isArray(data.list) ? data.list : [];
+        let newItems = 0;
+        for (const item of items) {
+          const id = typeof item.session_id === "string" ? item.session_id : "";
+          if (!id) continue;
+          if (!merged.has(id)) newItems++;
+          merged.set(id, { ...merged.get(id), ...item });
+          this.metas.set(id, item);
+        }
+        if (!isTrue(data.have_next_page)) break;
+        const candidate = typeof data.next_token === "string" || typeof data.next_token === "number" ? String(data.next_token) : "";
+        if (!candidate || seenTokens.has(candidate) || items.length > 0 && newItems === 0) throw new Error("Qianwen list pagination did not provide a new next_token");
+        seenTokens.add(candidate);
+        nextToken = candidate;
+        if (this.requestDelayMs > 0) await this.sleep(this.requestDelayMs);
       }
-      const metas = [];
-      const seen = /* @__PURE__ */ new Set();
-      const links = document.querySelectorAll('a[href*="/chat/"], a[href*="/conversation/"]');
-      for (const a of links) {
-        const href = a.getAttribute("href") || "";
-        for (const pattern of QWEN_URL_PATTERNS) {
-          const match = href.match(pattern);
-          if (!match || !match[1]) continue;
-          const id = match[1];
-          if (!id || seen.has(id)) continue;
-          seen.add(id);
-          const text = (a.textContent || "").trim();
-          metas.push({
-            id,
-            title: text || "通义千问对话"
-          });
+      return Array.from(merged.values());
+    }
+    async fetchConversationDetail(sessionId) {
+      var _a, _b;
+      const turns = /* @__PURE__ */ new Map();
+      const rawPages = [];
+      const seenCursors = /* @__PURE__ */ new Set();
+      let page = 1;
+      let pos;
+      let complete = false;
+      for (let count = 0; count < this.maxPages; count++) {
+        const response = await this.requestJson(this.apiUrl(DETAIL_ENDPOINT, {
+          session_id: sessionId,
+          page_size: this.detailPageSize,
+          page,
+          pos,
+          forward: false,
+          include_pos: false,
+          return_response_messages: true,
+          event_filter: "all"
+        }), {});
+        rawPages.push(sanitizeRaw(response));
+        const data = responseData(response);
+        const pageTurns = Array.isArray(data.list) ? data.list : [];
+        let newTurns = 0;
+        for (const rawTurn of pageTurns) {
+          const turn = sanitizeRaw(rawTurn);
+          const key = String(turn.req_id || turn.pos || JSON.stringify([turn.request_timestamp, turn.response_timestamp, turn.request_messages]));
+          if (!turns.has(key)) {
+            newTurns++;
+            turns.set(key, turn);
+          }
+        }
+        const hasMore = isTrue(data.have_next_page) || isTrue(data.has_next_page) || isTrue(data.have_more_record);
+        if (!hasMore) {
+          complete = true;
           break;
         }
+        if (pageTurns.length === 0) throw new Error(`Qianwen detail ${sessionId} returned an empty page with have_next_page=true`);
+        const nextPosValue = data.next_page_pos ?? ((_a = pageTurns[pageTurns.length - 1]) == null ? void 0 : _a.pos);
+        const nextPos = nextPosValue === void 0 || nextPosValue === null ? "" : String(nextPosValue);
+        const signature = `${page + 1}|${nextPos}`;
+        if (!nextPos || seenCursors.has(signature) || newTurns === 0) throw new Error(`Qianwen detail pagination stopped at page ${page} without a new cursor`);
+        seenCursors.add(signature);
+        pos = nextPos;
+        page++;
+        if (this.requestDelayMs > 0) await this.sleep(this.requestDelayMs);
       }
-      return metas;
-    }
-    /**
-     * 从 mapping 结构中提取消息
-     * 
-     * 如果通义千问使用树状 mapping 结构来组织消息
-     */
-    extractMessagesFromMapping(mapping) {
-      const messages = [];
-      for (const key of Object.keys(mapping)) {
-        const node = mapping[key];
-        if (node == null ? void 0 : node.message) {
-          messages.push(node.message);
-        }
-      }
-      return messages;
-    }
-    // ============================================================================
-    // 内部方法：API 响应拦截（可选）
-    // ============================================================================
-    /**
-     * 安装 API 响应拦截器
-     * 
-     * TODO: 此方法需要在合适的时机调用（如 userscript 初始化时）
-     * 用于拦截 XMLHttpRequest 和 fetch 请求
-     * 
-     * 需要实现：
-     * 1. 拦截 XHR 请求
-     * 2. 拦截 fetch 请求
-     * 3. 识别通义千问相关的 API 响应
-     * 4. 解析并缓存响应数据
-     */
-    installInterceptors() {
-      if (typeof window === "undefined") {
-        return;
-      }
-      console.log("[QwenAdapter] installInterceptors not fully implemented");
-    }
-    /**
-     * 处理通义千问详情响应
-     * 
-     * TODO: 需要根据实际响应结构调整
-     */
-    handleQwenResponse(text, _url) {
-      var _a, _b, _c, _d;
-      try {
-        const json = JSON.parse(text);
-        let convData = null;
-        if (Array.isArray(json.messages)) {
-          convData = json;
-        } else if (Array.isArray(json.chats)) {
-          convData = json;
-        } else if (Array.isArray(json.turns)) {
-          convData = json;
-        } else if (Array.isArray(json.history)) {
-          convData = json;
-        } else if (json.mapping) {
-          convData = json;
-        } else if (Array.isArray((_a = json == null ? void 0 : json.data) == null ? void 0 : _a.messages)) {
-          convData = json.data;
-        } else if (Array.isArray((_b = json == null ? void 0 : json.result) == null ? void 0 : _b.messages)) {
-          convData = json.result;
-        } else if (Array.isArray((_c = json == null ? void 0 : json.response) == null ? void 0 : _c.messages)) {
-          convData = json.response;
-        }
-        if (!convData) return;
-        const idFromUrl = this.extractConversationIdFromUrl();
-        const id = idFromUrl || json.id || json.conversation_id || json.chat_id || `${Date.now()}`;
-        const title = json.title || ((_d = json.metadata) == null ? void 0 : _d.title) || "通义千问对话";
-        this.conversationMetas.set(id, { id, title });
-        this.capturedConversations.set(id, convData);
-        console.log("[QwenAdapter] Captured conversation:", id);
-      } catch (error) {
-        console.error("[QwenAdapter] Failed to handle response:", error);
-      }
-    }
-    /**
-     * 处理通义千问列表响应
-     * 
-     * TODO: 需要根据实际响应结构调整
-     */
-    handleConversationListResponse(text) {
-      var _a;
-      try {
-        const json = JSON.parse(text);
-        const items = json.items || json.conversation_items || json.chats || json.sessions || json.history || (Array.isArray(json.data) ? json.data : (_a = json.data) == null ? void 0 : _a.items) || json.result || [];
-        const conversations = Array.isArray(items) ? items : [];
-        if (conversations.length > 0) {
-          for (const item of conversations) {
-            const id = this.extractConversationId(item);
-            const title = this.extractConversationTitle(item);
-            if (id) {
-              this.conversationMetas.set(id, {
-                id,
-                title,
-                createTime: item.create_time,
-                updateTime: item.update_time,
-                model: item.model,
-                messageCount: item.message_count
-              });
-            }
+      if (!complete) throw new Error(`Qianwen detail pagination exceeded ${this.maxPages} pages`);
+      const orderedTurns = Array.from(turns.values()).sort((left, right) => {
+        const leftPos = finiteNumber(left.pos), rightPos = finiteNumber(right.pos);
+        if (leftPos !== void 0 && rightPos !== void 0 && leftPos !== rightPos) return leftPos - rightPos;
+        return (finiteNumber(left.request_timestamp) || 0) - (finiteNumber(right.request_timestamp) || 0);
+      });
+      const meta = this.metas.get(sessionId);
+      let domTitle = "";
+      if (typeof document !== "undefined") {
+        for (const anchor of document.querySelectorAll('a[href*="/chat/"]')) {
+          if (parseQwenChatUrl(anchor.getAttribute("href") || "") === sessionId) {
+            domTitle = (anchor.textContent || "").trim();
+            break;
           }
         }
-      } catch (error) {
-        console.error("[QwenAdapter] Failed to handle list response:", error);
       }
+      return {
+        session_id: sessionId,
+        conversation_id: sessionId,
+        title: (meta == null ? void 0 : meta.title) || domTitle || "千问对话",
+        create_time: finiteNumber(meta == null ? void 0 : meta.created_at),
+        update_time: finiteNumber((meta == null ? void 0 : meta.updated_at) ?? (meta == null ? void 0 : meta.last_req_timestamp)),
+        turns: orderedTurns,
+        messages: flattenTurns(orderedTurns),
+        metadata: { model: (_b = orderedTurns.find((turn) => turn.model_name)) == null ? void 0 : _b.model_name },
+        _exportPagination: { complete: true, pageCount: rawPages.length, uniqueTurnCount: orderedTurns.length },
+        _rawPages: rawPages,
+        _credentialFieldsRedacted: ["header", "headers", "cookie", "authorization", "access_token", "refresh_token", "client_ip", "user_ip", "device_id", "signature"]
+      };
+    }
+    async requestJson(url, init) {
+      var _a;
+      let lastError;
+      for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+        try {
+          const response = await this.fetchFn(url, { ...init, credentials: "include" });
+          if (!response.ok) {
+            const error = new Error(`Qianwen API returned HTTP ${response.status}`);
+            Object.assign(error, { retryable: response.status === 429 || response.status >= 500 });
+            throw error;
+          }
+          const json = await response.json();
+          const root = asRecord(json);
+          if (root && root.code !== void 0 && Number(root.code) !== 0) {
+            const error = new Error(`Qianwen API error ${String(root.code)}: ${String(root.msg || "unknown error")}`);
+            Object.assign(error, { retryable: false });
+            throw error;
+          }
+          return json;
+        } catch (error) {
+          lastError = error;
+          if (((_a = asRecord(error)) == null ? void 0 : _a.retryable) === false || attempt === this.maxRetries) break;
+        }
+        const delay = this.retryBaseDelayMs * 2 ** attempt;
+        if (delay > 0) await this.sleep(delay);
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
     }
   }
+  new QwenAdapter();
   const adapterRegistry = /* @__PURE__ */ new Map();
   adapterRegistry.set("yuanbao", YuanbaoAdapter);
   adapterRegistry.set("chatgpt", ChatGPTAdapter);
@@ -8271,38 +8086,265 @@ ${block.text}
       }
       this.usedDirectoryNames.add(directoryName);
       const directory = await this.sessionDirectory.getDirectoryHandle(directoryName, { create: true });
+      const assetResult = await this.downloadAssets(directory, rawConversation.data);
+      const conversationWithLocalAssets = this.attachLocalAssetsToMessages(conversation, rawConversation.data);
+      const markdown = this.markdownExporter.renderConversation(conversationWithLocalAssets, {
+        format: "markdown",
+        includeMetadata: true,
+        includeAttachments: true
+      }) + this.renderAssetFailures(assetResult.failures);
       await Promise.all([
-        this.writeTextFile(directory, "raw.json", JSON.stringify(rawConversation.data, null, 2)),
-        this.writeTextFile(
-          directory,
-          "conversation.md",
-          this.markdownExporter.renderConversation(conversation, {
-            format: "markdown",
-            includeMetadata: true
-          })
-        )
+        this.writeFile(directory, "raw.json", JSON.stringify(rawConversation.data, null, 2)),
+        this.writeFile(directory, "conversation.md", markdown)
       ]);
       this.records.push({
         id: conversation.id,
         title: conversation.title,
         directory: directoryName,
         messageCount: conversation.messages.length,
-        source
+        source,
+        assetCount: assetResult.written.length,
+        assetFailures: assetResult.failures
       });
       return directoryName;
     }
     async finalize(metadata) {
-      await this.writeTextFile(this.sessionDirectory, "metadata.json", JSON.stringify({
+      await this.writeFile(this.sessionDirectory, "metadata.json", JSON.stringify({
         ...metadata,
         exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
         conversations: this.records
       }, null, 2));
     }
-    async writeTextFile(directory, filename, content) {
+    async writeFile(directory, filename, content) {
       const fileHandle = await directory.getFileHandle(filename, { create: true });
       const writable = await fileHandle.createWritable();
       await writable.write(content);
       await writable.close();
+    }
+    async downloadAssets(conversationDirectory, rawData) {
+      const assets = DirectoryBackupWriter.extractAssets(rawData);
+      const written = [];
+      const failures = [];
+      const usedNames = /* @__PURE__ */ new Map();
+      let imagesDirectory;
+      let filesDirectory;
+      for (const asset of assets) {
+        try {
+          const response = await this.fetchAsset(asset.url);
+          const folderName = asset.kind === "image" ? "images" : "files";
+          const targetDirectory = asset.kind === "image" ? imagesDirectory || (imagesDirectory = await conversationDirectory.getDirectoryHandle(folderName, { create: true })) : filesDirectory || (filesDirectory = await conversationDirectory.getDirectoryHandle(folderName, { create: true }));
+          const filename = DirectoryBackupWriter.uniqueFilename(asset.filename, usedNames);
+          const relativePath = `${folderName}/${filename}`;
+          await this.writeFile(targetDirectory, filename, await response.blob());
+          for (const sourceRecord of asset.sourceRecords) {
+            sourceRecord.localPath = relativePath;
+            sourceRecord.localRelativePath = relativePath;
+          }
+          written.push({ ...asset, filename, relativePath });
+        } catch (error) {
+          failures.push({
+            url: asset.url,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+      return { written, failures };
+    }
+    async fetchAsset(url) {
+      let lastError;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const resolvedUrl = await this.resolveYuanbaoResourceUrl(url);
+          const response = await window.fetch(resolvedUrl, { credentials: "omit" });
+          if (response.ok) return response;
+          throw new Error(`HTTP ${response.status}`);
+        } catch (error) {
+          lastError = error;
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    }
+    async resolveYuanbaoResourceUrl(url) {
+      let parsed;
+      try {
+        parsed = new URL(url, window.location.href);
+      } catch {
+        return url;
+      }
+      const resourceId = parsed.searchParams.get("resourceId");
+      if (!resourceId || !parsed.hostname.endsWith("tencent.com")) return url;
+      const endpoint = `/api/resource/v1/download?resourceId=${encodeURIComponent(resourceId)}`;
+      const response = await window.fetch(endpoint, {
+        method: "GET",
+        credentials: "same-origin"
+      });
+      if (!response.ok) throw new Error(`Resource URL request returned HTTP ${response.status}`);
+      const payload = await response.json();
+      const realUrl = DirectoryBackupWriter.findStringField(payload, "realUrl");
+      if (!realUrl) throw new Error("Resource URL response did not contain realUrl");
+      return realUrl;
+    }
+    static findStringField(value, targetKey) {
+      const queue = [value];
+      const visited = /* @__PURE__ */ new Set();
+      while (queue.length > 0 && visited.size < 256) {
+        const current = queue.shift();
+        if (!current || typeof current !== "object" || visited.has(current)) continue;
+        visited.add(current);
+        if (Array.isArray(current)) {
+          queue.push(...current);
+          continue;
+        }
+        const record = current;
+        if (typeof record[targetKey] === "string" && record[targetKey]) return record[targetKey];
+        queue.push(...Object.values(record));
+      }
+      return void 0;
+    }
+    renderAssetFailures(failures) {
+      if (failures.length === 0) return "";
+      const lines = ["\n\n## 未能下载的附件", ""];
+      for (const failure of failures) lines.push(`- ${failure.url} — ${failure.error}`);
+      lines.push("");
+      return lines.join("\n");
+    }
+    attachLocalAssetsToMessages(conversation, rawData) {
+      const data = rawData && typeof rawData === "object" && !Array.isArray(rawData) ? rawData : {};
+      const convs = Array.isArray(data.convs) ? data.convs : [];
+      const pathsByTurn = /* @__PURE__ */ new Map();
+      const allPaths = /* @__PURE__ */ new Map();
+      for (const rawTurn of convs) {
+        if (!rawTurn || typeof rawTurn !== "object") continue;
+        const turn = rawTurn;
+        const found = DirectoryBackupWriter.collectLocalPaths(turn);
+        if (found.length > 0) pathsByTurn.set(String(turn.index ?? ""), found);
+        for (const item of found) allPaths.set(item.path, item);
+      }
+      for (const item of DirectoryBackupWriter.collectLocalPaths(data)) allPaths.set(item.path, item);
+      const placed = /* @__PURE__ */ new Set();
+      const messages = conversation.messages.map((message) => {
+        var _a, _b;
+        const key = String(((_a = message.metadata) == null ? void 0 : _a.originalIndex) ?? ((_b = message.content.metadata) == null ? void 0 : _b.turnIndex) ?? "");
+        const assets = pathsByTurn.get(key) || [];
+        for (const asset of assets) placed.add(asset.path);
+        return assets.length > 0 ? {
+          ...message,
+          content: {
+            ...message.content,
+            text: `${message.content.text}
+
+${DirectoryBackupWriter.renderLocalLinks(assets)}`
+          }
+        } : message;
+      });
+      const unplaced = Array.from(allPaths.values()).filter((asset) => !placed.has(asset.path));
+      if (unplaced.length > 0 && messages.length > 0) {
+        const targetIndex = Math.max(0, messages.findIndex((message) => message.role === "user"));
+        const target = messages[targetIndex];
+        messages[targetIndex] = {
+          ...target,
+          content: {
+            ...target.content,
+            text: `${target.content.text}
+
+${DirectoryBackupWriter.renderLocalLinks(unplaced)}`
+          }
+        };
+      }
+      return { ...conversation, messages };
+    }
+    static collectLocalPaths(root) {
+      const result = /* @__PURE__ */ new Map();
+      const queue = [root];
+      const visited = /* @__PURE__ */ new Set();
+      while (queue.length > 0 && visited.size < 2e4) {
+        const value = queue.shift();
+        if (!value || typeof value !== "object" || visited.has(value)) continue;
+        visited.add(value);
+        if (Array.isArray(value)) {
+          queue.push(...value);
+          continue;
+        }
+        const record = value;
+        const path = typeof record.localRelativePath === "string" ? record.localRelativePath : typeof record.localPath === "string" ? record.localPath : "";
+        if (path) result.set(path, { path, kind: path.startsWith("images/") ? "image" : "file" });
+        queue.push(...Object.values(record));
+      }
+      return Array.from(result.values());
+    }
+    static renderLocalLinks(assets) {
+      return assets.map((asset) => {
+        const filename = asset.path.split("/").pop() || "附件";
+        const label = filename.replace(/[\[\]]/g, "_");
+        return asset.kind === "image" ? `![${label}](${encodeURI(asset.path)})` : `[${label}](${encodeURI(asset.path)})`;
+      }).join("\n\n");
+    }
+    static extractAssets(rawData) {
+      const assets = /* @__PURE__ */ new Map();
+      const queue = [rawData];
+      const visited = /* @__PURE__ */ new Set();
+      let inspected = 0;
+      while (queue.length > 0 && inspected < 1e5) {
+        const value = queue.shift();
+        if (!value || typeof value !== "object" || visited.has(value)) continue;
+        visited.add(value);
+        inspected++;
+        if (Array.isArray(value)) {
+          queue.push(...value);
+          continue;
+        }
+        const record = value;
+        const declaredType = String(record.type || record.docType || "").toLowerCase();
+        const mediaType = String(record.mediaType || "").toLowerCase();
+        const downloadableTypes = /* @__PURE__ */ new Set([
+          "image",
+          "code",
+          "file",
+          "pdf",
+          "doc",
+          "docx",
+          "txt",
+          "ppt",
+          "pptx",
+          "xls",
+          "xlsx",
+          "excel",
+          "audio",
+          "video"
+        ]);
+        const type = downloadableTypes.has(declaredType) ? declaredType : downloadableTypes.has(mediaType) ? mediaType : declaredType === "loadingimage" ? "image" : declaredType;
+        const url = ["resourceUrl", "downloadUrl", "url", "previewUrl", "thumbnailResourceUrl"].map((key) => record[key]).find((value2) => typeof value2 === "string" && value2.length > 0) || "";
+        if (url && downloadableTypes.has(type)) {
+          const fallbackExtension = type === "image" ? ".png" : "";
+          const rawFilename = typeof record.fileName === "string" && record.fileName ? record.fileName : `${String(record.mediaId || `attachment-${assets.size + 1}`)}${fallbackExtension}`;
+          const existing = assets.get(url);
+          if (existing) {
+            existing.sourceRecords.push(record);
+          } else {
+            assets.set(url, {
+              url,
+              filename: DirectoryBackupWriter.safeFilename(rawFilename),
+              kind: type === "image" ? "image" : "file",
+              type,
+              sourceRecords: [record]
+            });
+          }
+        }
+        queue.push(...Object.values(record));
+      }
+      return Array.from(assets.values());
+    }
+    static uniqueFilename(filename, usedNames) {
+      const normalized = filename.toLowerCase();
+      const count = (usedNames.get(normalized) || 0) + 1;
+      usedNames.set(normalized, count);
+      if (count === 1) return filename;
+      const dot = filename.lastIndexOf(".");
+      return dot > 0 ? `${filename.slice(0, dot)}_${count}${filename.slice(dot)}` : `${filename}_${count}`;
+    }
+    static safeFilename(value) {
+      return DirectoryBackupWriter.safeName(value).slice(0, 180) || "attachment";
     }
     static safeTime(timestamp) {
       const date = new Date(timestamp);
@@ -9701,25 +9743,25 @@ ${block.text}
     async processResponse(response, request) {
       try {
         const contentType = response.headers.get("Content-Type") || "";
-        let responseData;
+        let responseData2;
         if (contentType.includes("application/json")) {
-          responseData = await response.json();
+          responseData2 = await response.json();
         } else {
           const text = await response.text();
           try {
-            responseData = JSON.parse(text);
+            responseData2 = JSON.parse(text);
           } catch {
-            responseData = text;
+            responseData2 = text;
           }
         }
         const interceptedRequest = {
           ...request,
-          response: responseData
+          response: responseData2
         };
         if (this.onCapture) {
           this.onCapture(interceptedRequest);
         }
-        if (this.store && responseData) {
+        if (this.store && responseData2) {
           await this.storeCapture(interceptedRequest);
         }
       } catch (error) {
@@ -10143,7 +10185,7 @@ ${block.text}
       try {
         let result;
         if (options.scope === "current") {
-          result = await this.exportCurrentConversation(options.format);
+          result = this.currentPlatform === "yuanbao" ? await this.exportCurrentToDirectory() : await this.exportCurrentConversation(options.format);
         } else {
           result = await this.exportAllConversations("directory");
         }
@@ -10328,6 +10370,56 @@ ${block.text}
         };
       }
     }
+    /** Export one Yuanbao conversation with raw JSON, Markdown, and local assets. */
+    async exportCurrentToDirectory() {
+      var _a, _b, _c, _d, _e, _f, _g;
+      if (!this.adapter || !this.normalizer) {
+        return {
+          success: false,
+          error: "Platform adapter or normalizer is unavailable",
+          stats: { messageCount: 0, conversationCount: 0 }
+        };
+      }
+      try {
+        const writer = await DirectoryBackupWriter.create("yuanbao");
+        (_a = this.ui) == null ? void 0 : _a.updateProgress({ current: 0, total: 1, message: "正在获取当前会话…" });
+        const rawConversation = await this.adapter.getConversation(void 0, { forceRefresh: true });
+        if (!rawConversation) {
+          const metadata = await ((_c = (_b = this.adapter).getMetadata) == null ? void 0 : _c.call(_b));
+          const detail = typeof (metadata == null ? void 0 : metadata.lastRequestError) === "string" ? `: ${metadata.lastRequestError}` : "";
+          return {
+            success: false,
+            error: `Failed to fetch the current conversation${detail}`,
+            stats: { messageCount: 0, conversationCount: 0 },
+            details: metadata
+          };
+        }
+        const conversation = await this.normalizer.normalizeConversation(rawConversation);
+        (_d = this.ui) == null ? void 0 : _d.updateProgress({ current: 0, total: 1, message: "正在下载图片和附件…" });
+        const directory = await writer.writeConversation(rawConversation, conversation, 1, 1, "download");
+        await writer.finalize({
+          platform: this.currentPlatform,
+          listedCount: 1,
+          exportedCount: 1,
+          adapterMetadata: await ((_f = (_e = this.adapter).getMetadata) == null ? void 0 : _f.call(_e))
+        });
+        (_g = this.ui) == null ? void 0 : _g.updateProgress({ current: 1, total: 1, message: "当前会话导出完成" });
+        return {
+          success: true,
+          outputPath: `${writer.sessionDirectoryName}/${directory}`,
+          stats: {
+            messageCount: conversation.messages.length,
+            conversationCount: 1
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+          stats: { messageCount: 0, conversationCount: 0 }
+        };
+      }
+    }
     async exportAllToDirectory(options) {
       var _a, _b, _c, _d, _e;
       if (!this.adapter || !this.store || !this.normalizer) {
@@ -10402,7 +10494,7 @@ ${block.text}
       return {
         success: exportedCount > 0,
         outputPath: writer.sessionDirectoryName,
-        error: exportedCount === 0 ? collection.listedCount === 0 ? "The Yuanbao server returned no conversations; no DOM fallback was exported" : "No conversations could be written" : void 0,
+        error: exportedCount === 0 ? collection.listedCount === 0 ? "The server returned no conversations; no DOM fallback was exported" : "No conversations could be written" : void 0,
         stats: { messageCount, conversationCount: exportedCount },
         details: {
           listedCount: collection.listedCount,
