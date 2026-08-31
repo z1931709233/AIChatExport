@@ -1,13 +1,12 @@
 // ==UserScript==
-// @name         千问Chat Export Toolkit
+// @name         chatGPT Chat Export Toolkit
 // @namespace    https://github.com/gandli/chat-export-toolkit
-// @version      0.8.0
+// @version      0.7.5
 // @author       gandli
-// @description  导出千问当前或全部历史对话，并下载图片、代码和附件
+// @description  Export ChatGPT conversations to local JSON/Markdown folders
 // @license      MIT
-// @match        *://qianwen.com/*
-// @match        *://*.qianwen.com/*
-// @match        *://tongyi.aliyun.com/*
+// @match        *://chatgpt.com/*
+// @match        *://chat.openai.com/*
 // @grant        none
 // @run-at       document-start
 // ==/UserScript==
@@ -8249,13 +8248,13 @@ ${block.text}
       const written = [];
       const failures = [];
       const usedNames = /* @__PURE__ */ new Map();
-      const imagesDirectory = await conversationDirectory.getDirectoryHandle("images", { create: true });
-      const filesDirectory = await conversationDirectory.getDirectoryHandle("files", { create: true });
+      let imagesDirectory;
+      let filesDirectory;
       for (const asset of assets) {
         try {
           const response = asset.inlineText !== void 0 ? new Response(asset.inlineText, { headers: { "Content-Type": "text/plain;charset=utf-8" } }) : await this.fetchAsset(asset.url, conversationId);
           const folderName = asset.kind === "image" ? "images" : "files";
-          const targetDirectory = asset.kind === "image" ? imagesDirectory : filesDirectory;
+          const targetDirectory = asset.kind === "image" ? imagesDirectory || (imagesDirectory = await conversationDirectory.getDirectoryHandle(folderName, { create: true })) : filesDirectory || (filesDirectory = await conversationDirectory.getDirectoryHandle(folderName, { create: true }));
           const filename = DirectoryBackupWriter.uniqueFilename(asset.filename, usedNames);
           const relativePath = `${folderName}/${filename}`;
           await this.writeFile(targetDirectory, filename, await response.blob());
@@ -8399,15 +8398,6 @@ ${block.text}
         if (found.length > 0) pathsByTurn.set(String(turn.index ?? ""), found);
         for (const item of found) allPaths.set(item.path, item);
       }
-      const qwenTurns = Array.isArray(data.turns) ? data.turns : [];
-      for (const rawTurn of qwenTurns) {
-        if (!rawTurn || typeof rawTurn !== "object" || Array.isArray(rawTurn)) continue;
-        const turn = rawTurn;
-        const found = DirectoryBackupWriter.collectLocalPaths(turn);
-        const turnKey = String(turn.req_id ?? turn.pos ?? "");
-        if (turnKey && found.length > 0) pathsByTurn.set(turnKey, found);
-        for (const item of found) allPaths.set(item.path, item);
-      }
       const mapping = data.mapping && typeof data.mapping === "object" && !Array.isArray(data.mapping) ? data.mapping : {};
       for (const nodeValue of Object.values(mapping)) {
         if (!nodeValue || typeof nodeValue !== "object" || Array.isArray(nodeValue)) continue;
@@ -8431,15 +8421,10 @@ ${block.text}
       for (const item of DirectoryBackupWriter.collectLocalPaths(data)) allPaths.set(item.path, item);
       const placed = /* @__PURE__ */ new Set();
       const messages = conversation.messages.map((message) => {
-        var _a, _b, _c, _d;
-        const originalMetadata = ((_a = message.metadata) == null ? void 0 : _a.originalMetadata) && typeof message.metadata.originalMetadata === "object" ? message.metadata.originalMetadata : {};
-        const key = String(
-          ((_b = message.metadata) == null ? void 0 : _b.originalIndex) ?? ((_c = message.content.metadata) == null ? void 0 : _c.turnIndex) ?? originalMetadata.reqId ?? originalMetadata.pos ?? ""
-        );
-        const originalId = String(((_d = message.metadata) == null ? void 0 : _d.originalId) || "");
-        const directAssets = pathsByMessageId.get(originalId) || [];
-        const fallbackAssets = message.role === "assistant" ? pathsByTurn.get(key) || [] : [];
-        const assets = [...directAssets, ...fallbackAssets].filter((asset, index, list) => list.findIndex((candidate) => candidate.path === asset.path) === index).filter((asset) => !placed.has(asset.path));
+        var _a, _b, _c;
+        const key = String(((_a = message.metadata) == null ? void 0 : _a.originalIndex) ?? ((_b = message.content.metadata) == null ? void 0 : _b.turnIndex) ?? "");
+        const originalId = String(((_c = message.metadata) == null ? void 0 : _c.originalId) || "");
+        const assets = pathsByTurn.get(key) || pathsByMessageId.get(originalId) || [];
         for (const asset of assets) placed.add(asset.path);
         return assets.length > 0 ? {
           ...message,
@@ -8508,10 +8493,8 @@ ${DirectoryBackupWriter.renderLocalLinks(unplaced)}`
           continue;
         }
         const record = value;
-        const declaredType = String(
-          record.type || record.docType || record.content_type || record.contentType || record.mime_type || record.mimeType || ""
-        ).toLowerCase();
-        const mediaType = String(record.mediaType || record.media_type || "").toLowerCase();
+        const declaredType = String(record.type || record.docType || record.content_type || "").toLowerCase();
+        const mediaType = String(record.mediaType || "").toLowerCase();
         const downloadableTypes = /* @__PURE__ */ new Set([
           "image",
           "code",
@@ -8528,16 +8511,15 @@ ${DirectoryBackupWriter.renderLocalLinks(unplaced)}`
           "audio",
           "video"
         ]);
-        const mimeKind = declaredType.startsWith("image/") ? "image" : declaredType.startsWith("text/") || declaredType.startsWith("application/") ? "file" : "";
-        const type = downloadableTypes.has(declaredType) ? declaredType : downloadableTypes.has(mediaType) ? mediaType : declaredType === "loadingimage" ? "image" : declaredType === "image_asset_pointer" ? "image" : mimeKind || declaredType;
-        let url = ["resourceUrl", "downloadUrl", "download_url", "file_url", "image_url", "url", "src", "previewUrl", "thumbnailResourceUrl", "asset_pointer", "content"].map((key) => record[key]).find((value2) => typeof value2 === "string" && /^(?:https?:|data:|blob:|file-service:|sediment:)/i.test(value2)) || "";
+        const type = downloadableTypes.has(declaredType) ? declaredType : downloadableTypes.has(mediaType) ? mediaType : declaredType === "loadingimage" ? "image" : declaredType === "image_asset_pointer" ? "image" : declaredType;
+        let url = ["resourceUrl", "downloadUrl", "download_url", "url", "previewUrl", "thumbnailResourceUrl", "asset_pointer"].map((key) => record[key]).find((value2) => typeof value2 === "string" && value2.length > 0) || "";
         if (/^(?:file-service|sediment):\/\//.test(url)) {
           const fileId = url.replace(/^[^:]+:\/\//, "").split(/[/?#]/)[0];
           url = `/backend-api/files/download/${encodeURIComponent(fileId)}`;
         }
         if (url && downloadableTypes.has(type)) {
-          const fallbackExtension = DirectoryBackupWriter.extensionForType(declaredType || mediaType, type);
-          const rawFilename = typeof record.fileName === "string" && record.fileName ? record.fileName : typeof record.filename === "string" && record.filename ? record.filename : typeof record.name === "string" && record.name ? record.name : `${String(record.mediaId || record.file_id || record.id || `attachment-${assets.size + 1}`)}${fallbackExtension}`;
+          const fallbackExtension = type === "image" ? ".png" : "";
+          const rawFilename = typeof record.fileName === "string" && record.fileName ? record.fileName : `${String(record.mediaId || `attachment-${assets.size + 1}`)}${fallbackExtension}`;
           const existing = assets.get(url);
           if (existing) {
             existing.sourceRecords.push(record);
@@ -8555,11 +8537,10 @@ ${DirectoryBackupWriter.renderLocalLinks(unplaced)}`
           if (key !== "_rawPages" && key !== "_localCodeFiles") queue.push(child);
         }
       }
-      DirectoryBackupWriter.extractMessageAssets(rawData, assets);
+      DirectoryBackupWriter.extractChatGPTCodeAssets(rawData, assets);
       return Array.from(assets.values());
     }
-    /** Extract fenced code and Markdown images from normalized raw messages. */
-    static extractMessageAssets(rawData, assets) {
+    static extractChatGPTCodeAssets(rawData, assets) {
       if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) return;
       const data = rawData;
       if (!Array.isArray(data.messages)) return;
@@ -8567,18 +8548,11 @@ ${DirectoryBackupWriter.renderLocalLinks(unplaced)}`
       data.messages.forEach((value, messageIndex) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) return;
         const message = value;
-        const content = message.content;
-        const contentRecord = content && typeof content === "object" && !Array.isArray(content) ? content : {};
-        const parts = typeof content === "string" ? [content] : Array.isArray(content) ? content : Array.isArray(contentRecord.parts) ? contentRecord.parts : [];
-        const textualParts = parts.flatMap((part) => {
-          if (typeof part === "string") return [part];
-          if (!part || typeof part !== "object" || Array.isArray(part)) return [];
-          const record = part;
-          return typeof record.text === "string" ? [record.text] : typeof record.content === "string" ? [record.content] : [];
-        });
+        const content = message.content && typeof message.content === "object" && !Array.isArray(message.content) ? message.content : {};
+        const parts = Array.isArray(content.parts) ? content.parts : [];
         const groups = /* @__PURE__ */ new Map();
-        for (const part of textualParts) {
-          if (!part.includes("```")) continue;
+        for (const part of parts) {
+          if (typeof part !== "string" || !part.includes("```")) continue;
           codePattern.lastIndex = 0;
           let match;
           while (match = codePattern.exec(part)) {
@@ -8588,8 +8562,9 @@ ${DirectoryBackupWriter.renderLocalLinks(unplaced)}`
             groups.set(language, blocks);
           }
         }
+        if (groups.size === 0) return;
         const localRecords = [];
-        if (groups.size > 0) message._localCodeFiles = localRecords;
+        message._localCodeFiles = localRecords;
         const roleRecord = message.author && typeof message.author === "object" && !Array.isArray(message.author) ? message.author : {};
         const role = DirectoryBackupWriter.safeName(String(roleRecord.role || message.role || "message"));
         const messageNumber = String(messageIndex + 1).padStart(3, "0");
@@ -8608,60 +8583,7 @@ ${DirectoryBackupWriter.renderLocalLinks(unplaced)}`
             sourceRecords: [synthetic]
           });
         }
-        const imageRecords = [];
-        const imagePattern = /!\[[^\]]*\]\((https?:\/\/[^\s)]+)(?:\s+["'][^"']*["'])?\)/g;
-        for (const part of textualParts) {
-          imagePattern.lastIndex = 0;
-          let imageMatch;
-          while (imageMatch = imagePattern.exec(part)) {
-            const url = imageMatch[1];
-            const existing = assets.get(url);
-            const synthetic = { type: "image", url };
-            imageRecords.push(synthetic);
-            if (existing) {
-              existing.sourceRecords.push(synthetic);
-              continue;
-            }
-            const extension = DirectoryBackupWriter.extensionFromUrl(url) || ".png";
-            assets.set(url, {
-              url,
-              filename: `message-${messageNumber}_image-${String(imageRecords.length).padStart(2, "0")}${extension}`,
-              kind: "image",
-              type: "image",
-              sourceRecords: [synthetic]
-            });
-          }
-        }
-        if (imageRecords.length > 0) message._localImageFiles = imageRecords;
       });
-    }
-    static extensionForType(declaredType, kind) {
-      const normalized = declaredType.toLowerCase().split(";")[0];
-      const extensions = {
-        "image/png": ".png",
-        "image/jpeg": ".jpg",
-        "image/jpg": ".jpg",
-        "image/gif": ".gif",
-        "image/webp": ".webp",
-        "image/svg+xml": ".svg",
-        "text/plain": ".txt",
-        "text/markdown": ".md",
-        "application/json": ".json",
-        "application/pdf": ".pdf",
-        "application/zip": ".zip",
-        "application/vnd.ms-excel": ".xls",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx"
-      };
-      return extensions[normalized] || (kind === "image" ? ".png" : "");
-    }
-    static extensionFromUrl(url) {
-      try {
-        const pathname = new URL(url).pathname;
-        const match = pathname.match(/\.([a-zA-Z0-9]{1,8})$/);
-        return match ? `.${match[1].toLowerCase()}` : "";
-      } catch {
-        return "";
-      }
     }
     static uniqueFilename(filename, usedNames) {
       const normalized = filename.toLowerCase();
